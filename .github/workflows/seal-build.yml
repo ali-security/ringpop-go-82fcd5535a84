@@ -1,0 +1,64 @@
+name: seal-build
+on:
+  workflow_dispatch:
+
+jobs:
+  pack:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      MODULE_PATH: github.com/temporalio/ringpop-go
+      MODULE_VERSION: v0.0.0-20250130211428-b97329e994f7
+      GOPROXY: https://proxy.golang.org,direct
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: src
+          fetch-depth: 0
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.23.x'
+          cache: false
+      - name: Restore upstream CI files for the module zip
+        working-directory: src
+        run: |
+          # .travis.yml and test/run-integration-tests are edited for our Travis legs; the published module zip carries the upstream copies
+          git checkout b97329e994f7 -- .travis.yml test/run-integration-tests
+          rm -f .github/workflows/seal-build.yml
+          if [ -d .github/workflows ] && [ -z "$(ls -A .github/workflows)" ]; then rmdir .github/workflows; fi
+          if [ -d .github ] && [ -z "$(ls -A .github)" ]; then rmdir .github; fi
+          git status --short
+      - name: Build module zip
+        run: |
+          mkdir -p "$RUNNER_TEMP/helper" "$GITHUB_WORKSPACE/dist"
+          cd "$RUNNER_TEMP/helper"
+          go mod init sealhelper
+          go get golang.org/x/mod@v0.24.0
+          cat > main.go <<'EOF'
+          package main
+
+          import (
+              "os"
+
+              "golang.org/x/mod/module"
+              "golang.org/x/mod/zip"
+          )
+
+          func main() {
+              f, err := os.Create(os.Args[3])
+              if err != nil {
+                  panic(err)
+              }
+              defer f.Close()
+              if err := zip.CreateFromDir(f, module.Version{Path: os.Args[1], Version: os.Args[2]}, os.Args[4]); err != nil {
+                  panic(err)
+              }
+          }
+          EOF
+          go run . "$MODULE_PATH" "$MODULE_VERSION" "$GITHUB_WORKSPACE/dist/$MODULE_VERSION.zip" "$GITHUB_WORKSPACE/src"
+          unzip -l "$GITHUB_WORKSPACE/dist/$MODULE_VERSION.zip" | tail -3
+      - uses: actions/upload-artifact@v4
+        with:
+          name: module-zip
+          path: dist/v0.0.0-20250130211428-b97329e994f7.zip
+          if-no-files-found: error

@@ -9,7 +9,7 @@ set -eo pipefail
 
 declare tap_filter="${ringpop_common_dir}/test/tap-filter"
 
-declare test_cluster_sizes="1 2 3 4 5 10"
+declare test_cluster_sizes="${TEST_CLUSTER_SIZES:-1 2 3 4 5 10}"
 declare test_result=
 
 declare temp_dir="$(mktemp -d)"
@@ -91,6 +91,12 @@ run-test-for-cluster-size() {
 
         return 1
     fi
+
+    {
+        echo "PASS: Test passed for cluster size $cluster_size"
+        grep -E '^(not ok|# tests|# pass|# fail|# ok)' "$output_file"
+    } | prefix "test-results-${cluster_size}"
+    return 0
 }
 
 #
